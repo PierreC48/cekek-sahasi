@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#10283e">
+    <link rel="manifest" href="/manifest.webmanifest">
     <title>Marina Çekek Sahası Yerleşim Planı</title>
     <!-- Tailwind CSS (Tasarım için) -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -135,6 +137,28 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
 .mobile-sheet-actions button { min-height:45px; flex:1; background:#edf3f6; color:#16334a; border-radius:10px; font-weight:750; }
 .mobile-sheet-actions .primary { background:#087e91; color:#fff; }
 #mobile-nav { display:none; }
+
+/* Yalnızca açıkça seçilen tekne için ufak hızlı işlem çubuğu. */
+#marina-quick-action[hidden], #marina-toast[hidden] { display:none !important; }
+#marina-quick-action { display:none; }
+#marina-toast { position:fixed;z-index:130;top:74px;left:50%;transform:translateX(-50%);
+  max-width:calc(100vw - 26px);min-width:min(275px,calc(100vw - 26px));padding:11px 15px;
+  border-radius:12px;color:#fff;background:#123c52;box-shadow:0 8px 23px #0d263b55;
+  font-weight:700;font-size:13px;text-align:center;pointer-events:none; }
+@media(max-width:767px) {
+  #marina-quick-action:not([hidden]) { display:flex; position:fixed; z-index:73; bottom:calc(12px + env(safe-area-inset-bottom));
+    left:10px;right:10px;max-width:480px;margin:auto;align-items:center;gap:8px;
+    padding:8px 9px 8px 14px;background:rgba(255,255,255,.97);border:1px solid #afc9d5;
+    border-radius:15px;box-shadow:0 5px 18px #092b4270;min-height:55px; }
+  #marina-quick-action .quick-label {flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-size:13px;color:#133349;font-weight:800; }
+  #marina-quick-action button {min-height:38px;border-radius:10px;font-weight:700;padding:7px 11px;flex:none;}
+  #marina-quick-action .quick-edit {background:#087e91;color:#fff;}
+  #marina-quick-action .quick-close {background:#eaf1f5;color:#28485d;min-width:38px;}
+  #control-panel { max-height:min(62dvh,455px) !important; }
+  #control-panel .font-bold {line-height:1.3;}
+  #marina-toast {top:90px;}
+}
 @media(max-width:767px) {
   html,body { width:100%; height:100%; overflow:hidden; touch-action:manipulation; }
   body { height:100dvh !important; min-height:100dvh; }
@@ -410,6 +434,15 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
                     boats: current.boats,
                     bgImage: imageUploadInProgress ? previous.bgImage : current.bgImage
                 };
+                const newBoats = changed.filter(b => !prevBoats.has(b.id));
+                if (newBoats.length || deleted.length) {
+                    // Bildirim tetiklemesi kayıt onayından sonra yapılır; tekne taşıma bildirim göndermez.
+                    if (typeof window.marinaAfterCommittedChange === 'function') {
+                        window.marinaAfterCommittedChange(newBoats.map(b=>({kind:'added',id:b.id,name:b.name})).concat(
+                            deleted.map(id=>({kind:'deleted',id,name:prevBoats.get(id)?.name||'Tekne'}))));
+                    }
+                    if (typeof window.marinaDispatchPush === 'function') window.marinaDispatchPush();
+                }
             });
         }
 
@@ -940,10 +973,37 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
     if (html) el.innerHTML=html;
     return el;
   };
+  const quickBar = newEl('div', {id:'marina-quick-action',hidden:'','aria-live':'polite'},
+    '<span class="quick-label" id="quick-boat-label"></span><button type="button" class="quick-edit" id="quick-edit-boat">✏️ Düzenle</button>'+
+    '<button type="button" class="quick-close" id="quick-close-boat" aria-label="Seçimi kaldır">✕</button>');
+  document.body.append(quickBar);
+  const toast = newEl('div',{id:'marina-toast',hidden:'',role:'status','aria-live':'polite'});
+  document.body.append(toast);
+  let toastTimer=null;
+  function flashMessage(message){
+    toast.textContent=message;toast.hidden=false;clearTimeout(toastTimer);
+    toastTimer=setTimeout(()=>{toast.hidden=true;},3200);
+  }
+  function hideQuickBar(){quickBar.hidden=true;}
+  function showQuickBar(id){
+    if(!mobile() || !id || !panel.classList.contains('hidden') && !document.getElementById('rename-editor').classList.contains('hidden'))return;
+    const boat=appState.boats.find(b=>b.id===id);if(!boat)return;
+    quickBar.querySelector('#quick-boat-label').textContent='⛵ '+boat.name;
+    quickBar.hidden=false;
+  }
+  let suppressTapUntil=0;
+  quickBar.querySelector('#quick-edit-boat').addEventListener('click',()=>{
+    if(!selectedBoatId)return;
+    hideQuickBar();panel.classList.remove('hidden');panel.scrollTop=0;
+    document.getElementById('rename-editor').classList.add('hidden');
+  });
+  quickBar.querySelector('#quick-close-boat').addEventListener('click',()=>deselectBoat());
   const menu = newEl('div', {id:'site-menu',hidden:'',role:'menu'},
     '<h2>⚙️ Saha Ayarları</h2>' +
     '<button type="button" data-setting="croquis">🖼️ Krokiyi değiştir</button>' +
     '<button type="button" data-setting="import">📂 Yerleşim yedeği aktar</button>' +
+    '<button type="button" data-setting="refresh">🔄 Sayfayı Yenile</button>' +
+    '<button type="button" data-setting="notifications">🔔 Tüm Bildirimleri Aç</button>' +
     '<details><summary>Gelişmiş / tehlikeli işlemler</summary><button type="button" class="danger-option" data-setting="clear">🗑️ Tümünü temizle</button></details>');
   document.body.append(menu);
   const closeMenu = () => { menu.hidden = true; };
@@ -956,6 +1016,12 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
     closeMenu();
     showConfirm('Tehlikeli İşlem', 'Bu işlem bütün kullanıcıların görebildiği sahayı temizler. Devam etmek istiyor musunuz?', () => showClearConfirm());
   });
+  menu.querySelector('[data-setting="refresh"]').addEventListener('click',()=>{
+    closeMenu();
+    if(waitingWrites || imageUploadInProgress){flashMessage('Kayıt bitince yenileyin.');return;}
+    window.location.reload();
+  });
+  menu.querySelector('[data-setting="notifications"]').addEventListener('click',()=>{closeMenu();enableAllNotifications();});
   document.addEventListener('pointerdown', e=> { if(!menu.hidden && !menu.contains(e.target) && !e.target.closest('[data-menu-toggle]')) closeMenu(); });
 
   const desktopMenuButton = newEl('button', {id:'desktop-settings','data-menu-toggle':'',type:'button'},'⚙️ Saha Ayarları');
@@ -1134,6 +1200,147 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
   };
   window.addEventListener('resize',()=>initializeView(false));
   if(window.visualViewport)window.visualViewport.addEventListener('resize',()=>{if(!sheetBackdrop.hidden)updateVisualViewport();else initializeView(false);});
+  // Mobilde tekne taşıma ve seçme, geniş düzenleme panelini kendiliğinden açmaz.
+  const originalSelectBoat=selectBoat;
+  selectBoat=function(id){
+    originalSelectBoat(id);
+    if(!mobile())return;
+    panel.classList.add('hidden');
+    if(activeDragEl || Date.now()<suppressTapUntil)hideQuickBar();
+    else showQuickBar(id);
+  };
+  const originalDeselectBoat=deselectBoat;
+  deselectBoat=function(){hideQuickBar();originalDeselectBoat();};
+  const originalEndDrag=endDrag;
+  endDrag=function(e){
+    if(!activeDragEl)return originalEndDrag(e);
+    const wasMoving=isDragging, boatId=activeDragEl.id;
+    originalEndDrag(e);
+    if(!mobile())return;
+    panel.classList.add('hidden');
+    if(wasMoving){
+      // Drag sonrası tarayıcının yolladığı sentetik click menüyü açamaz.
+      suppressTapUntil=Date.now()+620;
+      hideQuickBar();
+      flashMessage('Teknenin yeni konumu kaydediliyor');
+    }else showQuickBar(boatId);
+  };
+  const originalRefresh=refreshCloudState;
+  let refreshInProgress=false;
+  refreshCloudState=async function(){
+    if(refreshInProgress)return;
+    const previous=confirmedCloudState?JSON.parse(JSON.stringify(confirmedCloudState)):null;
+    refreshInProgress=true;
+    try{
+      await originalRefresh();
+      if(previous && confirmedCloudState && !waitingWrites && !cloudWriteFailed){
+        const oldMap=new Map(previous.boats.map(b=>[b.id,b]));
+        const newMap=new Map(confirmedCloudState.boats.map(b=>[b.id,b]));
+        for(const b of confirmedCloudState.boats){if(!oldMap.has(b.id))notifyEvent({kind:'added',id:b.id,name:b.name});}
+        for(const b of previous.boats){if(!newMap.has(b.id))notifyEvent({kind:'deleted',id:b.id,name:b.name});}
+      }
+    }finally{refreshInProgress=false;}
+  };
+  // Tekne üzerindeki ufak yanlışlıkla hareketler sürükleme sayılmaz.
+  const previousDragMove=dragMove;
+  dragMove=function(e){
+    if(mobile() && activeDragEl){
+      if(e.touches && e.touches.length!==1)return;
+      const x=e.type.includes('mouse')?e.clientX:e.touches[0].clientX;
+      const y=e.type.includes('mouse')?e.clientY:e.touches[0].clientY;
+      if(!isDragging && Math.hypot(x-startX,y-startY)<7)return;
+      hideQuickBar();panel.classList.add('hidden');
+    }
+    return previousDragMove(e);
+  };
+  // Bildirimler: ekran açıkken Supabase Realtime + 4 sn yedek kontrolü;
+  // izin verilen destekli tarayıcıda site kapalıyken Web Push.
+  const vapidPublic='BB8L3JIzG7wEfLcgQArY8s6L9SJyI3obGGbIOK-f0hvTYZzruYoh50LMw-FD_xsNBIldpb9br1crIwTxC9THcf0';
+  const notified=new Map();
+  const notificationMenu=menu.querySelector('[data-setting="notifications"]');
+  let pushSubscribed=false;
+  const makeMessage=e=> (e.kind==='added'?'Tekne eklendi: ':'Tekne silindi: ')+e.name;
+  function notifyEvent(e){
+    const key=e.kind+':'+e.id;
+    const now=Date.now();
+    if(notified.has(key) && now-notified.get(key)<14000)return;
+    notified.set(key,now);
+    if(notified.size>120)for(const [k,at] of notified)if(now-at>30000)notified.delete(k);
+    flashMessage(makeMessage(e));
+    if(!pushSubscribed && 'Notification' in window && Notification.permission==='granted' && document.hidden){
+      try{new Notification('Çekek Sahası',{body:makeMessage(e),tag:key});}catch(err){console.warn('Bildirim',err);}
+    }
+  }
+  window.marinaAfterCommittedChange=events=>events.forEach(notifyEvent);
+  window.marinaDispatchPush=()=>{
+    fetch(cloudUrl+'/functions/v1/marina-push',{
+      method:'POST',headers:{apikey:cloudKey,'content-type':'application/json'},
+      body:JSON.stringify({action:'dispatch'})
+    }).catch(err=>console.warn('Bildirim tetikleme',err));
+  };
+  const base64ToBytes=base64=>{
+    const raw=atob((base64.replace(/-/g,'+').replace(/_/g,'/')+'====').slice(0,Math.ceil(base64.length/4)*4));
+    return Uint8Array.from(raw,c=>c.charCodeAt(0));
+  };
+  async function enableAllNotifications(){
+    if(!('Notification' in window)){showMessage('Bildirimler','Bu tarayıcı sistem bildirimi desteklemiyor. Site açıkken bildirim çubuğu çalışmaya devam eder.');return;}
+    try{
+      const permission=await Notification.requestPermission();
+      if(permission!=='granted'){showMessage('Bildirim izni','Bildirim izni verilmedi. Tarayıcının site izinlerinden daha sonra açabilirsiniz.');return;}
+      if(!('serviceWorker' in navigator) || !('PushManager' in window)){
+        notificationMenu.textContent='🔔 Bildirim izni verildi';
+        showMessage('Bildirimler açık','Site açıkken tekne değişiklikleri için tarayıcı bildirimleri etkin. Bu cihaz, site kapalıyken gelen web bildirimlerini desteklemiyor.');return;
+      }
+      const registration=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
+      const subscription=await registration.pushManager.getSubscription()||await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64ToBytes(vapidPublic)});
+      const response=await fetch(cloudUrl+'/functions/v1/marina-push',{
+        method:'POST',headers:{apikey:cloudKey,'content-type':'application/json'},
+        body:JSON.stringify({action:'subscribe',subscription:subscription.toJSON()})
+      });
+      if(!response.ok)throw new Error('Bildirim aboneliği kaydedilemedi (HTTP '+response.status+')');
+      pushSubscribed=true;
+      notificationMenu.textContent='✅ Tüm bildirimler açık';
+      showMessage('Bildirimler etkin','Tekne ekleme ve silme bildirimleri açıldı. Desteklenen cihazlarda site kapalıyken de bildirilecektir.');
+    }catch(err){
+      console.error('Bildirim etkinleştirilemedi',err);
+      showMessage('Bildirimler','Tarayıcı izin verdi ancak arka plan bildirimi kurulamadı. Site açıkken değişiklik uyarıları gösterilmeye devam eder. '+err.message);
+    }
+  }
+  if('Notification' in window && Notification.permission==='granted' && 'serviceWorker' in navigator){
+    navigator.serviceWorker.getRegistration().then(r=>r?.pushManager?.getSubscription()).then(s=>{
+      if(s){pushSubscribed=true;notificationMenu.textContent='✅ Tüm bildirimler açık';}
+    }).catch(()=>{});
+  }
+  // Dışarıdan herhangi bir JavaScript paketi erişilemese bile mevcut 4 sn senkronizasyon devam eder.
+  function startRealtime(){
+    if(!cloudEnabled)return;
+    const external=document.createElement('script');
+    external.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.2/dist/umd/supabase.min.js';
+    external.async=true;
+    external.onload=()=>{
+      if(!window.supabase?.createClient)return;
+      try{
+        const client=window.supabase.createClient(cloudUrl,cloudKey,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
+        client.channel('marina-public-updates')
+          .on('postgres_changes',{event:'INSERT',schema:'public',table:'marina_boats'},payload=>{
+            const b=payload.new?.data;if(b)notifyEvent({kind:'added',id:b.id,name:b.name});
+            refreshCloudState();
+          })
+          .on('postgres_changes',{event:'DELETE',schema:'public',table:'marina_boats'},payload=>{
+            const id=payload.old?.id;
+            const old=confirmedCloudState?.boats.find(b=>b.id===id);
+            if(id)notifyEvent({kind:'deleted',id,name:old?.name||'Tekne'});
+            refreshCloudState();
+          })
+          .on('postgres_changes',{event:'UPDATE',schema:'public',table:'marina_boats'},()=>refreshCloudState())
+          .subscribe();
+        window.addEventListener('beforeunload',()=>client.removeAllChannels(),{once:true});
+      }catch(err){console.warn('Realtime bağlantısı',err);}
+    };
+    external.onerror=()=>console.warn('Realtime kütüphanesi yüklenemedi, yedek senkronizasyon sürecek');
+    document.head.append(external);
+  }
+  startRealtime();
   requestAnimationFrame(()=>initializeView(true));
 })();
 
