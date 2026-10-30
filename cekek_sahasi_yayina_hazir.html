@@ -346,7 +346,9 @@
 
         function redrawState(nextState) {
             const selected = selectedBoatId;
-            appState = nextState;
+            // UI verisi, son sunucu durumuyla aynı nesneyi paylaşmamalı.
+            // Aksi halde tekne eklemek sunucu karşılaştırmasını da değiştirir ve kayıt atlanır.
+            appState = JSON.parse(JSON.stringify(nextState));
             mapContainer.style.backgroundImage = appState.bgImage ? `url(${JSON.stringify(appState.bgImage)})` : 'none';
             mapContainer.innerHTML = '';
             appState.boats.forEach(renderBoatElement);
