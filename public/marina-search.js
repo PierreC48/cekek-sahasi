@@ -34,7 +34,7 @@
   return all.sort((a,b)=>a.score-b.score||a.boat.name.localeCompare(b.boat.name,"tr")).map(x=>x.boat).slice(0,30);
  }
  const reset=document.createElement("button");reset.id="marina-reset-view";reset.hidden=true;reset.type="button";reset.textContent="↖ Tüm Sahayı Göster";
- reset.addEventListener("click",()=>{map.style.transform="";reset.hidden=true;deselectBoat();});
+ reset.addEventListener("click",()=>{if(window.marinaFitAll)window.marinaFitAll();reset.hidden=true;deselectBoat();});
  document.querySelector("header").append(reset);
  function focus(boat){
   const el=document.getElementById(boat.id);
@@ -42,16 +42,9 @@
   deselectBoat();
   el.classList.remove("highlight-pulse");void el.offsetWidth;el.classList.add("highlight-pulse");
   el.style.zIndex=String(++highestZIndex);
-  if(mobile() && typeof window.marinaFocusBoat==="function"){
+  if(typeof window.marinaFocusBoat==="function"){
    window.marinaFocusBoat(boat.id);
-  }else if(!mobile()){
-   const x=Number(boat.left)||0,y=Number(boat.top)||0;
-   const scale=1.13;
-   const left=Math.round(wrapper.clientWidth*.5-(x+50)*scale);
-   const top=Math.round(wrapper.clientHeight*.46-(y+20)*scale);
-   map.style.transformOrigin="0 0";
-   map.style.transform="translate("+left+"px,"+top+"px) scale("+scale+")";
-   reset.hidden=false;
+   reset.hidden=mobile();
   }
  }
  const deskParent=search.parentElement;deskParent.style.position="relative";
