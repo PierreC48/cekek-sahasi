@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#10283e">
     <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Çekek Sahası">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
     <title>Marina Çekek Sahası Yerleşim Planı</title>
     <!-- Tailwind CSS (Tasarım için) -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -98,6 +102,12 @@
     </style>
     <style id="marina-responsive-styles">
 /* Çekek Sahası — responsive görünüm, kayıt yapısını değiştirmez. */
+#modal-msg { white-space:pre-line; }
+#ios-install-shortcut { display:none; }
+@media(max-width:767px){
+  #ios-install-shortcut:not([hidden]) { display:flex; width:100%; align-items:center; gap:8px; padding:7px 11px; margin-top:3px; border-radius:9px; background:#e5f4f5; color:#144456; text-align:left; font-size:12px; font-weight:700; box-sizing:border-box; min-height:38px; }
+  #ios-install-shortcut:focus-visible {outline:3px solid #38b7be;}
+}
 :root { color-scheme:light; --marine-ink:#142b40; --marine-accent:#087e91; }
 html,body { max-width:100%; }
 body { background:#e9f0f4; display:flex; flex-direction:column; }
@@ -1282,17 +1292,73 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
     const raw=atob((base64.replace(/-/g,'+').replace(/_/g,'/')+'====').slice(0,Math.ceil(base64.length/4)*4));
     return Uint8Array.from(raw,c=>c.charCodeAt(0));
   };
+  // iOS/iPadOS'ta Web Push sadece Ana Ekrana eklenmiş bağımsız web uygulamasında çalışır.
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+  const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
+  const installGuide = 'iPhone’da bildirimleri açmak için:\n\n1. Bu siteyi Safari’de açın.\n2. Safari’de Paylaş (kare içinden yukarı ok) düğmesine basın.\n3. “Ana Ekrana Ekle” seçeneğini seçip Ekle’ye basın.\n4. Safari sekmesine değil, ana ekrandaki “Çekek Sahası” simgesine dokunun.\n5. ☰ Menü → Tüm Bildirimleri Aç → İzin Ver.\n\nNot: iOS 16.4 veya üzeri gerekir. Safari sekmesinden bildirim izni alınamaz. Daha önce eklediğiniz simge işe yaramıyorsa ana ekrandan kaldırıp yeniden ekleyin.';
+  function showIOSInstallGuide(){
+    showMessage('📲 iPhone bildirimlerini kur',installGuide);
+  }
+  const iosShortcut=document.createElement('button');
+  iosShortcut.type='button';iosShortcut.id='ios-install-shortcut';
+  iosShortcut.setAttribute('aria-label','iPhone bildirimleri kurulumu');
+  iosShortcut.addEventListener('click',()=>{
+    if(!isStandalone())showIOSInstallGuide();
+    else enableAllNotifications();
+  });
+  if(isIOS){
+    header.appendChild(iosShortcut);
+    iosShortcut.hidden=false;
+  }
+  function updateIOSNotificationUI(){
+    if(!isIOS)return;
+    if(!isStandalone()){
+      notificationMenu.textContent='📲 iPhone: Bildirimler için Ana Ekrana Ekle';
+      iosShortcut.textContent='🔔 iPhone bildirimlerini açmak için dokun';
+      iosShortcut.hidden=false;
+    }else if(pushSubscribed){
+      notificationMenu.textContent='✅ Tüm bildirimler açık';
+      iosShortcut.hidden=true;
+    }else{
+      notificationMenu.textContent='🔔 Tüm Bildirimleri Aç';
+      iosShortcut.textContent='🔔 Bildirim iznini açmak için dokun';
+      iosShortcut.hidden=false;
+    }
+  }
+  updateIOSNotificationUI();
   async function enableAllNotifications(){
-    if(!('Notification' in window)){showMessage('Bildirimler','Bu tarayıcı sistem bildirimi desteklemiyor. Site açıkken bildirim çubuğu çalışmaya devam eder.');return;}
+    // Bu denetim Notification API kontrolünden önce yapılmalı: iOS Safari sekmesinde API görünmeyebilir.
+    if(isIOS && !isStandalone()){
+      showIOSInstallGuide();
+      return;
+    }
+    if(!('Notification' in window)){
+      showMessage('Bildirimler desteklenmiyor',isIOS
+        ? 'Ana ekrandaki uygulamayı açtığınızdan ve iOS sürümünüzün 16.4 veya üzeri olduğundan emin olun.'
+        : 'Bu tarayıcı sistem bildirimi desteklemiyor. Site açıkken değişiklik uyarıları gösterilebilir.');
+      return;
+    }
+    if(Notification.permission==='denied'){
+      showMessage('Bildirim izni engellenmiş',isIOS
+        ? 'iPhone Ayarlar → Bildirimler → Çekek Sahası bölümünden bildirimlere izin verin. Gerekirse ana ekran uygulamasını kapatıp yeniden açın.'
+        : 'Tarayıcı ayarlarındaki bu site için bildirim iznini yeniden açın.');
+      return;
+    }
     try{
-      const permission=await Notification.requestPermission();
-      if(permission!=='granted'){showMessage('Bildirim izni','Bildirim izni verilmedi. Tarayıcının site izinlerinden daha sonra açabilirsiniz.');return;}
       if(!('serviceWorker' in navigator) || !('PushManager' in window)){
-        notificationMenu.textContent='🔔 Bildirim izni verildi';
-        showMessage('Bildirimler açık','Site açıkken tekne değişiklikleri için tarayıcı bildirimleri etkin. Bu cihaz, site kapalıyken gelen web bildirimlerini desteklemiyor.');return;
+        showMessage('Bildirimler desteklenmiyor','Bu cihazda arka plan bildirimleri kullanılamıyor. Uyumlu tarayıcı ve işletim sistemi gerekiyor.');return;
+      }
+      // İzin isteği doğrudan kullanıcı dokunmasına bağlı olarak başlamalıdır.
+      const permission=await Notification.requestPermission();
+      if(permission!=='granted'){
+        showMessage('Bildirim izni','Bildirimlere izin verilmedi. iPhone Ayarlar → Bildirimler → Çekek Sahası bölümünü kontrol edin.');return;
       }
       const registration=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
-      const subscription=await registration.pushManager.getSubscription()||await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64ToBytes(vapidPublic)});
+      const activeRegistration=await navigator.serviceWorker.ready;
+      const manager=activeRegistration.pushManager||registration.pushManager;
+      let subscription=await manager.getSubscription();
+      if(!subscription)subscription=await manager.subscribe({userVisibleOnly:true,applicationServerKey:base64ToBytes(vapidPublic)});
       const response=await fetch(cloudUrl+'/functions/v1/marina-push',{
         method:'POST',headers:{apikey:cloudKey,'content-type':'application/json'},
         body:JSON.stringify({action:'subscribe',subscription:subscription.toJSON()})
@@ -1300,15 +1366,18 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
       if(!response.ok)throw new Error('Bildirim aboneliği kaydedilemedi (HTTP '+response.status+')');
       pushSubscribed=true;
       notificationMenu.textContent='✅ Tüm bildirimler açık';
-      showMessage('Bildirimler etkin','Tekne ekleme ve silme bildirimleri açıldı. Desteklenen cihazlarda site kapalıyken de bildirilecektir.');
+      updateIOSNotificationUI();
+      showMessage('Bildirimler etkin','Bu cihazda tekne ekleme ve silme bildirimleri etkinleştirildi. Bildirimler iPhone Bildirim Merkezi ve kilit ekranında görünebilir.');
     }catch(err){
       console.error('Bildirim etkinleştirilemedi',err);
-      showMessage('Bildirimler','Tarayıcı izin verdi ancak arka plan bildirimi kurulamadı. Site açıkken değişiklik uyarıları gösterilmeye devam eder. '+err.message);
+      showMessage('Bildirim kurulum hatası',
+        'Bildirim aboneliği henüz tamamlanamadı. İnternet bağlantısını kontrol edin, ana ekran simgesinden uygulamayı yeniden açın ve tekrar deneyin.\n\nTeknik bilgi: '+(err?.message||String(err)));
     }
   }
   if('Notification' in window && Notification.permission==='granted' && 'serviceWorker' in navigator){
     navigator.serviceWorker.getRegistration().then(r=>r?.pushManager?.getSubscription()).then(s=>{
       if(s){pushSubscribed=true;notificationMenu.textContent='✅ Tüm bildirimler açık';}
+      updateIOSNotificationUI();
     }).catch(()=>{});
   }
   // Dışarıdan herhangi bir JavaScript paketi erişilemese bile mevcut 4 sn senkronizasyon devam eder.
