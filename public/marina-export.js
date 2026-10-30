@@ -23,8 +23,8 @@
     if(!appState.bgImage)throw new Error("Kroki kaydı bulunamadı.");
     if(waitingWrites)await pendingWrites;
     const boats=appState.boats.map(b=>({...b}));
-    const W=Math.max(1200,...boats.map(b=>Math.ceil((Number(b.left)||0)+180)));
-    const H=Math.max(760,...boats.map(b=>Math.ceil((Number(b.top)||0)+130)));
+    const W=2600;
+    const H=1100;
     if(W>6000||H>6000)throw new Error("Bazı teknelerin koordinatları saha sınırlarının dışında görünüyor.");
     const headerH=58,footerH=44;
     const pixelScale=Math.max(1,Math.min(2,3400/W,2200/(H+headerH+footerH)));
@@ -41,9 +41,7 @@
     const img=await loadImage(appState.bgImage);
     ctx.save();ctx.translate(0,headerH);
     ctx.fillStyle="#d7e4eb";ctx.fillRect(0,0,W,H);
-    const ratio=Math.min(W/img.naturalWidth,H/img.naturalHeight);
-    const iw=img.naturalWidth*ratio,ih=img.naturalHeight*ratio;
-    ctx.drawImage(img,(W-iw)/2,(H-ih)/2,iw,ih);
+    ctx.drawImage(img,0,0,W,H);
     for(const boat of boats){
       const x=(Number(boat.left)||0)+50,y=(Number(boat.top)||0)+20;
       const sz=Math.max(.15,Math.min(5,Number(boat.scale)||1));
