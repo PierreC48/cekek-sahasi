@@ -1,0 +1,28 @@
+
+#marina-trash-overlay[hidden],#marina-smart-list[hidden],#marina-mobile-matches[hidden],#marina-reset-view[hidden]{display:none!important}
+#marina-trash-overlay{position:fixed;z-index:125;inset:0;background:#0e253bb9;display:flex;justify-content:center;align-items:center;padding:14px}
+#marina-trash-dialog{width:min(560px,100%);max-height:min(85dvh,730px);overflow:hidden;display:flex;flex-direction:column;background:#fff;border-radius:20px;box-shadow:0 18px 55px #0b263755;color:#19384b}
+#marina-trash-head{padding:17px 19px;border-bottom:1px solid #e1e9ef;display:flex;align-items:center;justify-content:space-between;gap:12px}
+#marina-trash-head h2{font-size:18px;font-weight:800}
+#marina-trash-close{font-size:26px;line-height:1;color:#536f7e;min-width:40px;min-height:40px}
+#marina-trash-items{overflow-y:auto;overscroll-behavior:contain;padding:12px 16px 22px}
+.marina-trash-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 3px;border-bottom:1px solid #edf2f5}
+.marina-trash-row strong{display:block;font-size:14px;overflow-wrap:anywhere}
+.marina-trash-row small{display:block;margin-top:4px;font-size:11px;color:#657e89}
+.marina-trash-row button{background:#087e91;color:white;font-weight:750;font-size:12px;padding:10px 12px;border-radius:9px;flex-shrink:0}
+.marina-trash-row button:disabled{opacity:.5}
+#marina-smart-list,#marina-mobile-matches{background:white;border:1px solid #c9dce5;border-radius:13px;box-shadow:0 12px 30px #122b3c2b;z-index:110;overflow-y:auto;overscroll-behavior:contain;max-height:290px}
+#marina-smart-list{position:absolute;top:calc(100% + 8px);right:0;width:min(360px,90vw)}
+#marina-mobile-matches{position:relative;width:100%;max-height:min(33dvh,245px);margin-bottom:12px;box-shadow:none}
+.marina-search-item{display:block;width:100%;padding:11px 14px;text-align:left;border-bottom:1px solid #ecf1f4;font-size:14px;color:#163548;background:white}
+.marina-search-item:hover,.marina-search-item:focus-visible{background:#e9f7f7}
+.marina-search-item small{display:block;color:#66818b;font-size:11px;margin-top:2px}
+.marina-search-empty{padding:13px;font-size:13px;color:#617783}
+#marina-reset-view{padding:10px 12px;border-radius:9px;border:1px solid #41677a;background:#2b5269;color:#fff;font-size:12px;font-weight:700}
+#marina-feature-toast{position:fixed;z-index:150;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#113a4b;color:#fff;padding:11px 16px;border-radius:13px;box-shadow:0 6px 20px #0c243a55;font-weight:700;font-size:13px;max-width:min(92vw,460px);text-align:center}
+#marina-feature-toast[hidden]{display:none}
+@media(max-width:767px){
+ #marina-trash-overlay{padding:0;align-items:flex-end}
+ #marina-trash-dialog{width:100%;max-height:75dvh;border-radius:22px 22px 0 0;padding-bottom:env(safe-area-inset-bottom)}
+ #marina-reset-view{display:none!important}
+}
