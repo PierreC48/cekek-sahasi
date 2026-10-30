@@ -197,6 +197,7 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
 @media(min-width:768px) { #mobile-map-tools {display:none;} }
 
     </style>
+<link rel="stylesheet" href="/marina-features.css">
 </head>
 <body class="bg-slate-100 h-screen flex flex-col text-slate-800">
 
@@ -1410,9 +1411,12 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
     document.head.append(external);
   }
   startRealtime();
+  window.marinaFocusBoat=focusBoat;
   requestAnimationFrame(()=>initializeView(true));
 })();
 
     </script>
+    <script src="/marina-search.js"></script>
+    <script src="/marina-export.js"></script>
 </body>
 </html>
