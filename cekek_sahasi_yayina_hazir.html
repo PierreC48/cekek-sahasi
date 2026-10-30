@@ -251,7 +251,6 @@
         }
 
         // --- Ortak veri kaydı (Supabase REST) ve çevrimdışı yerel yedek ---
-        // URL ve herkese açık (anon/publishable) anahtar config.js içindedir.
         const cloudUrl = (window.MARINA_SUPABASE_URL || '').replace(/\/$/, '');
         const cloudKey = window.MARINA_SUPABASE_KEY || '';
         const cloudEnabled = /^https:\/\//.test(cloudUrl) && !cloudUrl.includes('PROJE_KODUNUZ') && !!cloudKey && !cloudKey.startsWith('BURAYA_');
@@ -260,6 +259,9 @@
         let pendingWrites = Promise.resolve();
         let waitingWrites = 0;
         let cloudLoaded = false;
+        let imageUploadInProgress = false;
+        let cloudWriteFailed = false;
+        let syncTimer = null;
 
         function setSyncStatus(message, isError = false) {
             syncStatus.innerText = message;
@@ -285,15 +287,17 @@
             return body ? JSON.parse(body) : null;
         }
 
+        // Seri kayıt kuyruğu: henüz sunucuya yazılmamış resmi/tekneyi 4 sn'lik yenileme silemez.
         function queueCloudWrite(task) {
             waitingWrites++;
             setSyncStatus('Kaydediliyor…');
             pendingWrites = pendingWrites.catch(() => {}).then(task).then(() => {
+                cloudWriteFailed = false;
                 setSyncStatus('● Ortak kayıt aktif');
             }).catch(error => {
+                cloudWriteFailed = true;
                 console.error('Bulut kayıt hatası:', error);
-                setSyncStatus('⚠ Kayıt hatası', true);
-                showMessage('Kaydetme Hatası', 'Değişiklik ortak sisteme kaydedilemedi. İnternet ve Supabase ayarlarını kontrol edin. ' + error.message);
+                setSyncStatus('⚠ Kayıt başarısız — tekrar denenecek', true);
             }).finally(() => { waitingWrites--; });
             return pendingWrites;
         }
@@ -307,17 +311,15 @@
 
         function saveState() {
             writeLocalCache();
-            if (!cloudEnabled || !cloudLoaded) { if(cloudEnabled) showMessage('Bağlantı Bekleniyor', 'Ortak veritabanına bağlanılmadan yapılan değişiklikler paylaşılmaz.'); return; }
+            if (!cloudEnabled || !cloudLoaded) return;
+            // Resim yüklemesi devam ediyorsa mevcut krokiyi asla değiştirme.
             const current = snapshotState();
-            const previous = confirmedCloudState || {bgImage: null, boats: []};
-            const prevBoats = new Map(previous.boats.map(b => [b.id, b]));
-            const nowIds = new Set(current.boats.map(b => b.id));
-            const changed = current.boats.filter(b => JSON.stringify(b) !== JSON.stringify(prevBoats.get(b.id)));
-            const deleted = previous.boats.filter(b => !nowIds.has(b.id)).map(b => b.id);
-            const bgChanged = current.bgImage !== previous.bgImage;
-            if (!changed.length && !deleted.length && !bgChanged) return;
-            confirmedCloudState = current;
             queueCloudWrite(async () => {
+                const previous = confirmedCloudState || {bgImage: null, boats: []};
+                const prevBoats = new Map(previous.boats.map(b => [b.id, b]));
+                const nowIds = new Set(current.boats.map(b => b.id));
+                const changed = current.boats.filter(b => JSON.stringify(b) !== JSON.stringify(prevBoats.get(b.id)));
+                const deleted = previous.boats.filter(b => !nowIds.has(b.id)).map(b => b.id);
                 for (const id of deleted) {
                     await apiCall('marina_boats?id=eq.' + encodeURIComponent(id), {method: 'DELETE'});
                 }
@@ -327,19 +329,24 @@
                         body: JSON.stringify(changed.map(b => ({id: b.id, data: b})))
                     });
                 }
-                if (bgChanged) {
+                if (!imageUploadInProgress && current.bgImage !== previous.bgImage) {
                     await apiCall('marina_settings?on_conflict=id', {
                         method: 'POST', headers: {Prefer: 'resolution=merge-duplicates'},
                         body: JSON.stringify([{id: 1, bg_image: current.bgImage}])
                     });
                 }
+                // Do not mark a write successful before the server actually acknowledges it.
+                confirmedCloudState = {
+                    boats: current.boats,
+                    bgImage: imageUploadInProgress ? previous.bgImage : current.bgImage
+                };
             });
         }
 
         function redrawState(nextState) {
             const selected = selectedBoatId;
             appState = nextState;
-            mapContainer.style.backgroundImage = appState.bgImage ? `url(${appState.bgImage})` : 'none';
+            mapContainer.style.backgroundImage = appState.bgImage ? `url(${JSON.stringify(appState.bgImage)})` : 'none';
             mapContainer.innerHTML = '';
             appState.boats.forEach(renderBoatElement);
             selectedBoatId = null;
@@ -366,12 +373,11 @@
                 try {
                     const parsed = JSON.parse(saved);
                     if (Array.isArray(parsed.boats)) localState = parsed;
-                } catch (e) { console.warn('Yerel kayıt bozuk:', e); }
+                } catch (error) { console.warn('Yerel kayıt bozuk:', error); }
             }
             redrawState(localState);
             if (!cloudEnabled) {
-                syncStatus.innerText = '⚠ Yalnızca bu cihazda';
-                syncStatus.className = 'text-xs text-amber-100 bg-amber-700 rounded px-2 py-1';
+                setSyncStatus('⚠ Yalnızca bu cihazda', true);
                 return;
             }
             setSyncStatus('Bağlanıyor…');
@@ -379,33 +385,35 @@
                 const remote = await fetchCloudState();
                 confirmedCloudState = remote;
                 cloudLoaded = true;
-                const hasRemoteData = remote.boats.length || remote.bgImage;
-                const needsMigration = !localStorage.getItem('marinaCloudImported') &&
-                    !hasRemoteData && (localState.boats.length || localState.bgImage);
-                if (needsMigration) {
-                    // Eski tarayıcı kayıtlarını ilk kurulumda ortak alana aktar.
+                // Boş bulut, halihazırda bulunan krokiyi ve tekneleri silemez.
+                // Eski sürümde marinaCloudImported yanlışlıkla işaretlenmiş olsa bile korur.
+                if (!remote.boats.length && !remote.bgImage && (localState.boats.length || localState.bgImage)) {
                     redrawState(localState);
                     saveState();
                     await pendingWrites;
-                    localStorage.setItem('marinaCloudImported', '1');
                 } else {
-                    localStorage.setItem('marinaCloudImported', '1');
                     redrawState(remote);
                     setSyncStatus('● Ortak kayıt aktif');
                 }
-                setInterval(refreshCloudState, 4000);
+                localStorage.setItem('marinaCloudImported', '1');
+                if (syncTimer) clearInterval(syncTimer);
+                syncTimer = setInterval(refreshCloudState, 4000);
             } catch (error) {
                 console.error('Buluta bağlanılamadı:', error);
-                setSyncStatus('⚠ Bağlantı hatası', true);
-                showMessage('Ortak Bağlantı Kurulamadı', 'Ortak veriler yüklenemedi. Bilgileri değiştirmeden önce internet ve config.js ayarlarını kontrol edin. ' + error.message);
+                setSyncStatus('⚠ Bağlantı hatası — yerel görünüm korunuyor', true);
+                showMessage('Ortak Bağlantı Kurulamadı', 'Kroki ve tekneler cihazda korunuyor, ancak henüz ortak veritabanına bağlanılamadı. ' + error.message);
             }
         }
 
         async function refreshCloudState() {
-            if (!cloudLoaded || waitingWrites || activeDragEl || document.getElementById('rename-editor').classList.contains('hidden') === false) return;
+            if (!cloudLoaded || waitingWrites || imageUploadInProgress || activeDragEl || !document.getElementById('rename-editor').classList.contains('hidden')) return;
+            if (cloudWriteFailed) {
+                saveState(); // İnternet yeniden geldiğinde son yerel değişiklikleri gönder.
+                return;
+            }
             try {
                 const remote = await fetchCloudState();
-                if (waitingWrites || activeDragEl) return;
+                if (waitingWrites || imageUploadInProgress || activeDragEl) return;
                 if (JSON.stringify(remote) !== JSON.stringify(confirmedCloudState)) {
                     confirmedCloudState = remote;
                     redrawState(remote);
@@ -413,7 +421,7 @@
                 setSyncStatus('● Ortak kayıt aktif');
             } catch (error) {
                 console.error('Ortak senkronizasyon kesildi:', error);
-                setSyncStatus('⚠ Bağlantı kesildi', true);
+                setSyncStatus('⚠ Bağlantı kesildi — görünüm korunuyor', true);
             }
         }
 
@@ -465,19 +473,68 @@
         }
 
         // --- Arka Plan (Kroki) İşlemleri ---
-        function handleImageUpload(event) {
-            const file = event.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const base64Str = e.target.result;
-                    mapContainer.style.backgroundImage = `url(${base64Str})`;
-                    appState.bgImage = base64Str;
-                    saveState();
-                }
-                reader.readAsDataURL(file);
+        // Görsel önce Supabase Storage'a YÜKLENİR, sonra kayıt olarak URL saklanır.
+        // Kaydetme tamamlanıncaya kadar ortak yenileme ekrandaki krokiyi silemez.
+        async function handleImageUpload(event) {
+            const file = event.target.files && event.target.files[0];
+            event.target.value = '';
+            if (!file) return;
+            if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+                showMessage('Dosya Türü', 'Lütfen PNG, JPG veya WEBP resmi seçin.');
+                return;
             }
-            event.target.value = ''; // Aynı dosyayı tekrar seçebilmek için
+            if (file.size > 10 * 1024 * 1024) {
+                showMessage('Resim Çok Büyük', 'Kroki en fazla 10 MB olabilir.');
+                return;
+            }
+            if (!cloudEnabled || !cloudLoaded) {
+                showMessage('Bağlantı Bekleniyor', 'Krokiyi kaydetmeden önce üstteki ortak kayıt bağlantısının aktif olmasını bekleyin.');
+                return;
+            }
+            if (imageUploadInProgress) return;
+            imageUploadInProgress = true;
+            waitingWrites++;
+            const previewUrl = URL.createObjectURL(file);
+            mapContainer.style.backgroundImage = `url(${JSON.stringify(previewUrl)})`;
+            setSyncStatus('Kroki buluta yükleniyor…');
+            try {
+                // Önce sıradaki tekne kayıtlarını bitir; resim üzerine eski durum yazılmasın.
+                await pendingWrites;
+                const ext = file.type === 'image/png' ? 'png' : (file.type === 'image/webp' ? 'webp' : 'jpg');
+                const fileName = 'kroki-' + Date.now() + '-' + (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)) + '.' + ext;
+                const upload = await fetch(cloudUrl + '/storage/v1/object/marina-croquis/' + fileName, {
+                    method: 'POST',
+                    headers: {
+                        apikey: cloudKey,
+                        ...(cloudKey.startsWith('sb_publishable_') ? {} : {Authorization: 'Bearer ' + cloudKey}),
+                        'Content-Type': file.type,
+                        'cache-control': '3600'
+                    },
+                    body: file
+                });
+                if (!upload.ok) throw new Error('Resim yüklenemedi (HTTP ' + upload.status + '): ' + (await upload.text()).slice(0, 200));
+                const permanentUrl = cloudUrl + '/storage/v1/object/public/marina-croquis/' + encodeURIComponent(fileName);
+                await apiCall('marina_settings?on_conflict=id', {
+                    method: 'POST', headers: {Prefer: 'resolution=merge-duplicates'},
+                    body: JSON.stringify([{id: 1, bg_image: permanentUrl}])
+                });
+                appState.bgImage = permanentUrl;
+                if (confirmedCloudState) confirmedCloudState.bgImage = permanentUrl;
+                writeLocalCache();
+                mapContainer.style.backgroundImage = `url(${JSON.stringify(permanentUrl)})`;
+                cloudWriteFailed = false;
+                setSyncStatus('● Kroki kalıcı kaydedildi');
+            } catch(error) {
+                console.error('Kroki kaydetme hatası:', error);
+                setSyncStatus('⚠ Kroki yüklenemedi', true);
+                mapContainer.style.backgroundImage = `url(${JSON.stringify(previewUrl)})`;
+                showMessage('Kroki Kaydedilemedi', 'Resim ekranda geçici olarak duruyor fakat buluta kaydedilemedi. Yeniden yüklemeniz gerekir. ' + error.message);
+            } finally {
+                imageUploadInProgress = false;
+                waitingWrites--;
+                // Blob URL ancak arkaplan kalıcı adrese geçince kaldırılır.
+                if (appState.bgImage && appState.bgImage.startsWith('https://')) URL.revokeObjectURL(previewUrl);
+            }
         }
 
         // --- Tümünü Temizle ---
