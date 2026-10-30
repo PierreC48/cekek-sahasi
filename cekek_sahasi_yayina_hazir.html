@@ -260,6 +260,7 @@
         let waitingWrites = 0;
         let cloudLoaded = false;
         let imageUploadInProgress = false;
+        let imageUploadFailed = false;
         let cloudWriteFailed = false;
         let syncTimer = null;
 
@@ -406,7 +407,7 @@
         }
 
         async function refreshCloudState() {
-            if (!cloudLoaded || waitingWrites || imageUploadInProgress || activeDragEl || !document.getElementById('rename-editor').classList.contains('hidden')) return;
+            if (!cloudLoaded || waitingWrites || imageUploadInProgress || imageUploadFailed || activeDragEl || !document.getElementById('rename-editor').classList.contains('hidden')) return;
             if (cloudWriteFailed) {
                 saveState(); // İnternet yeniden geldiğinde son yerel değişiklikleri gönder.
                 return;
@@ -493,6 +494,7 @@
             }
             if (imageUploadInProgress) return;
             imageUploadInProgress = true;
+            imageUploadFailed = false;
             waitingWrites++;
             const previewUrl = URL.createObjectURL(file);
             mapContainer.style.backgroundImage = `url(${JSON.stringify(previewUrl)})`;
@@ -523,9 +525,11 @@
                 writeLocalCache();
                 mapContainer.style.backgroundImage = `url(${JSON.stringify(permanentUrl)})`;
                 cloudWriteFailed = false;
+                imageUploadFailed = false;
                 setSyncStatus('● Kroki kalıcı kaydedildi');
             } catch(error) {
                 console.error('Kroki kaydetme hatası:', error);
+                imageUploadFailed = true;
                 setSyncStatus('⚠ Kroki yüklenemedi', true);
                 mapContainer.style.backgroundImage = `url(${JSON.stringify(previewUrl)})`;
                 showMessage('Kroki Kaydedilemedi', 'Resim ekranda geçici olarak duruyor fakat buluta kaydedilemedi. Yeniden yüklemeniz gerekir. ' + error.message);
