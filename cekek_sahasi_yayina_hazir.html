@@ -1315,7 +1315,7 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
   function startRealtime(){
     if(!cloudEnabled)return;
     const external=document.createElement('script');
-    external.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.2/dist/umd/supabase.min.js';
+    external.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.0/dist/umd/supabase.min.js';
     external.async=true;
     external.onload=()=>{
       if(!window.supabase?.createClient)return;
