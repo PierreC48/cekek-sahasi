@@ -998,3 +998,145 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
   mobileHeader.querySelector('#mobile-add-button').addEventListener('click',()=>openSheet('add'));
   mobileHeader.querySelector('#mobile-search-button').addEventListener('click',()=>openSheet('search'));
   sheetBackdrop.querySelector('#mobile-action-cancel').addEventListener('click',closeSheet);
+  sheetBackdrop.addEventListener('click',e=>{if(e.target===sheetBackdrop)closeSheet();});
+  sheetBackdrop.querySelector('#mobile-action-form').addEventListener('submit',e=>{
+    e.preventDefault(); const name=sheetInput.value.trim();if(!name)return;
+    closeSheet();
+    if(mode==='add'){desktopAdd.value=name;addBoat();if(mobile())focusBoat(selectedBoatId);}
+    else{desktopSearch.value=name;searchBoat();}
+  });
+  if (window.visualViewport){window.visualViewport.addEventListener('resize', updateVisualViewport); window.visualViewport.addEventListener('scroll',updateVisualViewport);}
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeSheet();closeMenu();if(mobile())deselectBoat();}});
+
+  // Mobil krokiyi masaüstündeki koordinatları değiştirmeden yakınlaştırır.
+  const toolBar=newEl('div',{id:'mobile-map-tools','aria-label':'Kroki görünümü'},
+    '<button type="button" id="map-zoom-out" title="Uzaklaştır">−</button><span id="zoom-percent">100%</span>' +
+    '<button type="button" id="map-zoom-in" title="Yakınlaştır">+</button><button type="button" id="map-fit" title="Tüm sahayı göster">Tüm saha</button>');
+  wrapper.append(toolBar);
+  let worldWidth=1200,worldHeight=760;
+  let view={scale:1,x:0,y:0,initialized:false};
+  function determineWorldBounds(){
+    let maxX=0,maxY=0;
+    try {for(const b of appState.boats){maxX=Math.max(maxX,+b.left||0);maxY=Math.max(maxY,+b.top||0);}}catch(e){}
+    worldWidth=Math.max(1200,Math.ceil((maxX+180)/100)*100);
+    worldHeight=Math.max(760,Math.ceil((maxY+130)/100)*100);
+  }
+  function limits(){return {w:wrapper.clientWidth,h:wrapper.clientHeight};}
+  function boundPan(){
+    const {w,h}=limits();
+    const maxX=Math.max(0,(w-worldWidth*view.scale)/2),maxY=Math.max(0,(h-worldHeight*view.scale)/2);
+    if (worldWidth*view.scale<=w) view.x=maxX;
+    else view.x=Math.min(35,Math.max(w-worldWidth*view.scale-35,view.x));
+    if (worldHeight*view.scale<=h) view.y=maxY;
+    else view.y=Math.min(35,Math.max(h-worldHeight*view.scale-35,view.y));
+  }
+  function applyTransform(){
+    if(!mobile())return;
+    canvas.style.width=worldWidth+'px'; canvas.style.height=worldHeight+'px';
+    canvas.style.transform=`translate3d(${view.x}px,${view.y}px,0) scale(${view.scale})`;
+    toolBar.querySelector('#zoom-percent').textContent=Math.round(view.scale*100)+'%';
+  }
+  function fitAll(){
+    if(!mobile())return;
+    determineWorldBounds(); const {w,h}=limits();
+    view.scale=Math.min((w-12)/worldWidth,(h-12)/worldHeight);
+    view.scale=Math.max(.1,view.scale);
+    view.x=(w-worldWidth*view.scale)/2;view.y=(h-worldHeight*view.scale)/2;
+    view.initialized=true;applyTransform();
+  }
+  function initializeView(reset=false){
+    if(!mobile()){
+      canvas.style.transform='';canvas.style.width='';canvas.style.height='';view.initialized=false;return;
+    }
+    determineWorldBounds();
+    if(reset||!view.initialized){
+      const {w,h}=limits(); const fit=Math.max(.1,Math.min(w/worldWidth,h/worldHeight));
+      view.scale=Math.min(1,Math.max(.48,fit*1.8));
+      const first=appState.boats[0];
+      view.x=first?Math.min(20,42-(+first.left||0)*view.scale):6;
+      view.y=first?Math.min(25,Math.max(-100,50-(+first.top||0)*view.scale)):8;
+      view.initialized=true;
+    }
+    boundPan();applyTransform();
+  }
+  function zoomAt(mult,cx,cy){
+    if(!mobile())return;
+    const old=view.scale;view.scale=Math.min(2.8,Math.max(.15,view.scale*mult));
+    view.x=cx-(cx-view.x)*(view.scale/old);
+    view.y=cy-(cy-view.y)*(view.scale/old);
+    boundPan();applyTransform();
+  }
+  toolBar.querySelector('#map-zoom-in').addEventListener('click',()=>zoomAt(1.3,wrapper.clientWidth/2,wrapper.clientHeight/2));
+  toolBar.querySelector('#map-zoom-out').addEventListener('click',()=>zoomAt(1/1.3,wrapper.clientWidth/2,wrapper.clientHeight/2));
+  toolBar.querySelector('#map-fit').addEventListener('click',fitAll);
+  function focusBoat(id){
+    if(!mobile()||!id)return;
+    const b=appState.boats.find(it=>it.id===id);if(!b)return;
+    const x=(+b.left||0)+50,y=(+b.top||0)+20;
+    view.x=wrapper.clientWidth/2-x*view.scale;
+    view.y=Math.min(25,(wrapper.clientHeight*0.36)-y*view.scale);
+    boundPan();applyTransform();
+  }
+  // Boş kroki üzerinde kaydırma; iki parmakla yakınlaştırma.
+  let gesture=null;
+  const point=(t)=>({x:t.clientX-wrapper.getBoundingClientRect().left,y:t.clientY-wrapper.getBoundingClientRect().top});
+  const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+  wrapper.addEventListener('touchstart',e=>{
+    if(!mobile())return;
+    if(e.touches.length>=2){
+      e.preventDefault();e.stopImmediatePropagation();
+      if(activeDragEl){activeDragEl=null;document.removeEventListener('mousemove',dragMove);document.removeEventListener('mouseup',endDrag);document.removeEventListener('touchmove',dragMove);document.removeEventListener('touchend',endDrag);}
+      const a=point(e.touches[0]),b=point(e.touches[1]);
+      gesture={type:'pinch',dist:distance(a,b),scale:view.scale,x:view.x,y:view.y,cx:(a.x+b.x)/2,cy:(a.y+b.y)/2};return;
+    }
+    if(e.target.closest('#mobile-map-tools,.boat-item,#control-panel,button,input,label'))return;
+    const p=point(e.touches[0]);gesture={type:'pan',start:p,x:view.x,y:view.y};
+  },{capture:true,passive:false});
+  wrapper.addEventListener('touchmove',e=>{
+    if(!mobile()||!gesture)return;
+    e.preventDefault();e.stopImmediatePropagation();
+    if(gesture.type==='pinch'&&e.touches.length>=2){
+      const a=point(e.touches[0]),b=point(e.touches[1]),cx=(a.x+b.x)/2,cy=(a.y+b.y)/2;
+      view.scale=Math.min(2.8,Math.max(.15,gesture.scale*distance(a,b)/Math.max(1,gesture.dist)));
+      view.x=cx-(gesture.cx-gesture.x)*(view.scale/gesture.scale);
+      view.y=cy-(gesture.cy-gesture.y)*(view.scale/gesture.scale);
+    }else if(gesture.type==='pan'&&e.touches.length===1){
+      const p=point(e.touches[0]);view.x=gesture.x+p.x-gesture.start.x;view.y=gesture.y+p.y-gesture.start.y;
+    }
+    boundPan();applyTransform();
+  },{capture:true,passive:false});
+  wrapper.addEventListener('touchend',e=>{if(e.touches.length===0)gesture=null;else if(gesture?.type==='pinch'&&e.touches.length<2)gesture=null;},{passive:true});
+  wrapper.addEventListener('touchcancel',()=>{gesture=null;},{passive:true});
+
+  const nativeDragMove=dragMove;
+  dragMove=function(e){
+    if(!mobile()||!activeDragEl)return nativeDragMove(e);
+    if(e.touches && e.touches.length!==1)return;
+    e.preventDefault();isDragging=true;
+    const clientX=e.type.includes('mouse')?e.clientX:e.touches[0].clientX;
+    const clientY=e.type.includes('mouse')?e.clientY:e.touches[0].clientY;
+    activeDragEl.style.left=(initialLeft+(clientX-startX)/view.scale)+'px';
+    activeDragEl.style.top=(initialTop+(clientY-startY)/view.scale)+'px';
+    positionControlPanel();
+  };
+  const nativePositionPanel=positionControlPanel;
+  positionControlPanel=function(){if(mobile())return;nativePositionPanel();};
+  const nativeRedraw=redrawState;
+  redrawState=function(s){nativeRedraw(s);requestAnimationFrame(()=>initializeView(false));};
+  const nativeSearch=searchBoat;
+  searchBoat=function(){
+    if(!mobile())return nativeSearch();
+    const q=desktopSearch.value.toLocaleLowerCase('tr').trim();if(!q)return;
+    const matches=appState.boats.filter(b=>b.name.toLocaleLowerCase('tr').includes(q));
+    if(!matches.length){showMessage('Bulunamadı','Aranan tekne sahada bulunamadı.');return;}
+    const b=matches[0];const el=document.getElementById(b.id);if(el){el.classList.remove('highlight-pulse');void el.offsetWidth;el.classList.add('highlight-pulse');}
+    focusBoat(b.id);
+  };
+  window.addEventListener('resize',()=>initializeView(false));
+  if(window.visualViewport)window.visualViewport.addEventListener('resize',()=>{if(!sheetBackdrop.hidden)updateVisualViewport();else initializeView(false);});
+  requestAnimationFrame(()=>initializeView(true));
+})();
+
+    </script>
+</body>
+</html>
