@@ -197,7 +197,43 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
 @media(min-width:768px) { #mobile-map-tools {display:flex;} }
 
 #map-container {position:absolute!important;top:0!important;left:0!important;right:auto!important;bottom:auto!important;width:2600px!important;height:1100px!important;max-width:none!important;max-height:none!important;background-size:100% 100%!important;background-position:0 0!important;transform-origin:0 0!important;}
-    </style>
+    
+/* Tekne düzenleme: kroki ve seçili tekne, yarı saydam panelin arkasında görünür. */
+#control-panel:not(.hidden) {
+  background-color:rgba(243,250,253,.64) !important;
+  border:1px solid rgba(255,255,255,.86) !important;
+  box-shadow:0 7px 26px rgba(11,40,58,.22) !important;
+  color:#153348;
+}
+#control-panel > div:first-child {
+  background:rgba(255,255,255,.55);
+  border-radius:9px;
+  padding:5px 8px;
+}
+#control-panel #panel-boat-name { color:#102d43 !important; }
+#control-panel label {color:#1e4053 !important;}
+#control-panel button.bg-slate-100,
+#control-panel #rename-editor input,
+#control-panel #rename-editor button { background-color:rgba(255,255,255,.90) !important; }
+#control-panel #rename-toggle {background:rgba(231,244,253,.90) !important;}
+#control-panel > button[onclick="deleteSelectedBoat()"] {
+  background-color:rgba(255,237,239,.91) !important;
+}
+@media(max-width:767px) {
+  #control-panel:not(.hidden) {
+    bottom:calc(8px + env(safe-area-inset-bottom)) !important;
+    left:8px !important;
+    right:8px !important;
+    width:calc(100% - 16px) !important;
+    max-width:calc(100% - 16px) !important;
+    max-height:min(43dvh,340px) !important;
+    padding:12px 13px calc(12px + env(safe-area-inset-bottom)) !important;
+    gap:9px !important;
+    border-radius:18px !important;
+  }
+  #control-panel:not(.hidden)::before {background:rgba(48,100,127,.5);}
+}
+</style>
 <link rel="stylesheet" href="/marina-features.css">
 </head>
 <body class="bg-slate-100 h-screen flex flex-col text-slate-800">
@@ -1004,10 +1040,30 @@ header button[onclick="showClearConfirm()"] { display:none !important; }
     quickBar.hidden=false;
   }
   let suppressTapUntil=0;
+
+  // Açılan saydam düzenleme paneli tekneyi örterse, yalnızca kamerayı kaydır.
+  // Kaydedilmiş tekne koordinatları ve zoom oranı asla değişmez.
+  function keepSelectedBoatVisibleWhileEditing() {
+    if(!mobile() || panel.classList.contains('hidden') || !selectedBoatId)return;
+    const boat=appState.boats.find(b=>b.id===selectedBoatId);
+    if(!boat)return;
+    const mapRect=wrapper.getBoundingClientRect();
+    const panelRect=panel.getBoundingClientRect();
+    const usableBottom=Math.max(92,Math.min(wrapper.clientHeight,panelRect.top-mapRect.top-14));
+    const x=view.x+((Number(boat.left)||0)+50)*view.scale;
+    const y=view.y+((Number(boat.top)||0)+20)*view.scale;
+    const targetX=Math.max(48,Math.min(wrapper.clientWidth-48,x));
+    const targetY=Math.max(58,Math.min(Math.max(58,usableBottom-54),y));
+    if(Math.abs(targetX-x)>1 || Math.abs(targetY-y)>1) {
+      view.x+=targetX-x;view.y+=targetY-y;
+      boundPan();applyTransform();
+    }
+  }
   quickBar.querySelector('#quick-edit-boat').addEventListener('click',()=>{
     if(!selectedBoatId)return;
     hideQuickBar();panel.classList.remove('hidden');panel.scrollTop=0;
     document.getElementById('rename-editor').classList.add('hidden');
+    requestAnimationFrame(keepSelectedBoatVisibleWhileEditing);
   });
   quickBar.querySelector('#quick-close-boat').addEventListener('click',()=>deselectBoat());
   const menu = newEl('div', {id:'site-menu',hidden:'',role:'menu'},
